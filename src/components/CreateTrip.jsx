@@ -103,7 +103,7 @@ export default function CreateTrip({ trip, onTripSaved, onCancel }) {
       }
 
       const savedTrip = isEditing
-        ? await updateTrip(trip.id, tripData)
+        ? await updateTrip(trip.id, user.id, tripData)
         : await createTrip(user.id, tripData)
 
       onTripSaved(savedTrip)
@@ -205,10 +205,13 @@ export default function CreateTrip({ trip, onTripSaved, onCancel }) {
                 </label>
                 <button
                   type="button"
+                  disabled={!formData.startDate}
                   onClick={() => setShowEndPicker(!showEndPicker)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all text-gray-900 text-left flex items-center justify-between"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all text-gray-900 text-left flex items-center justify-between disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
-                  {formData.endDate ? format(parseISO(formData.endDate), 'PPP', { locale: es }) : 'Seleccionar fecha'}
+                  {formData.endDate
+                    ? format(parseISO(formData.endDate), 'PPP', { locale: es })
+                    : formData.startDate ? 'Seleccionar fecha' : 'Elige primero la fecha de inicio'}
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4 V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -219,12 +222,14 @@ export default function CreateTrip({ trip, onTripSaved, onCancel }) {
                       mode="single"
                       selected={formData.endDate ? parseISO(formData.endDate) : undefined}
                       onSelect={(date) => {
-                        if (date) {
-                          setFormData({ ...formData, endDate: format(date, 'yyyy-MM-dd') })
-                          setShowEndPicker(false)
-                        }
+                        if (!date || !formData.startDate) return
+                        const endDate = format(date, 'yyyy-MM-dd')
+                        if (endDate < formData.startDate) return
+                        setFormData({ ...formData, endDate })
+                        setShowEndPicker(false)
                       }}
-                      disabled={formData.startDate ? { before: parseISO(formData.startDate) } : undefined}
+                      disabled={{ before: parseISO(formData.startDate) }}
+                      defaultMonth={parseISO(formData.startDate)}
                       locale={es}
                       className="rdp"
                     />
