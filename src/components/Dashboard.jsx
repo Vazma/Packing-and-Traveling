@@ -13,7 +13,9 @@ import {
   Pencil,
   Trash2,
   ChevronDown,
-  LogOut
+  LogOut,
+  Map,
+  Users
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getWeatherLabel } from '../lib/labels'
@@ -22,6 +24,8 @@ import { loadUserTrips, deleteTrip } from '../lib/tripStorage'
 import CreateTrip from './CreateTrip'
 import PackingPlanModal from './PackingPlanModal'
 import PackingProgressModal from './PackingProgressModal'
+import ItineraryView from './ItineraryView'
+import ShareTripModal from './ShareTripModal'
 
 // Monumentos y motivos de viaje que decoran el fondo del dashboard
 // En pantallas chicas se muestran menos piezas y más pequeñas para que no se encimen
@@ -45,6 +49,8 @@ export default function Dashboard() {
   const [tripToDelete, setTripToDelete] = useState(null)
   const [planningTrip, setPlanningTrip] = useState(null)
   const [packingTrip, setPackingTrip] = useState(null)
+  const [itineraryTrip, setItineraryTrip] = useState(null)
+  const [shareTrip, setShareTrip] = useState(null)
   const [trips, setTrips] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -209,26 +215,43 @@ export default function Dashboard() {
                   <div className="h-2 bg-gradient-to-r from-sky-500 to-sky-700"></div>
                   <div className="p-6">
                     <div className="flex items-start justify-between gap-2 mb-3">
-                      <h3 className="text-xl font-bold text-gray-900 group-hover:text-sky-600 transition-colors">
-                        {trip.destination}
-                      </h3>
+                      <div className="min-w-0">
+                        <h3 className="text-xl font-bold text-gray-900 group-hover:text-sky-600 transition-colors">
+                          {trip.destination}
+                        </h3>
+                        {!trip.is_owner && (
+                          <span className="text-xs text-sky-600 font-medium">Compartido contigo</span>
+                        )}
+                      </div>
                       <div className="flex items-center space-x-1 shrink-0">
-                        <button
-                          onClick={() => setEditingTrip(trip)}
-                          title="Editar viaje"
-                          aria-label={`Editar viaje a ${trip.destination}`}
-                          className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setTripToDelete(trip)}
-                          title="Eliminar viaje"
-                          aria-label={`Eliminar viaje a ${trip.destination}`}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {trip.is_owner && (
+                          <>
+                            <button
+                              onClick={() => setShareTrip(trip)}
+                              title="Copiar viaje a alguien"
+                              aria-label={`Copiar viaje a ${trip.destination}`}
+                              className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                            >
+                              <Users className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingTrip(trip)}
+                              title="Editar viaje"
+                              aria-label={`Editar viaje a ${trip.destination}`}
+                              className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setTripToDelete(trip)}
+                              title="Eliminar viaje"
+                              aria-label={`Eliminar viaje a ${trip.destination}`}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center text-gray-600 mb-4">
@@ -268,6 +291,13 @@ export default function Dashboard() {
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
+                      </button>
+                      <button
+                        onClick={() => setItineraryTrip(trip)}
+                        className="w-full border border-sky-600 text-sky-700 py-3 px-4 rounded-lg font-medium hover:bg-sky-50 transition-colors flex items-center justify-center space-x-2"
+                      >
+                        <Map className="w-4 h-4" />
+                        <span>Itinerario</span>
                       </button>
                       <button
                         onClick={() => setPackingTrip(trip)}
@@ -339,6 +369,23 @@ export default function Dashboard() {
           trip={packingTrip}
           onClose={() => {
             setPackingTrip(null)
+            loadTrips()
+          }}
+        />
+      )}
+
+      {itineraryTrip && (
+        <ItineraryView
+          trip={itineraryTrip}
+          onClose={() => setItineraryTrip(null)}
+        />
+      )}
+
+      {shareTrip && (
+        <ShareTripModal
+          trip={shareTrip}
+          onClose={() => {
+            setShareTrip(null)
             loadTrips()
           }}
         />
