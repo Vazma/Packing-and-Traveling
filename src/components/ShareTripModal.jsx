@@ -29,7 +29,12 @@ export default function ShareTripModal({ trip, onClose }) {
       setSuccess(`Copia enviada a @${clean}`)
       setUsername('')
     } catch (err) {
-      setError(err.message || 'No se pudo copiar el viaje')
+      const msg = err.message || ''
+      if (msg.toLowerCase().includes('overlap') || msg.includes('trips_no_user_date_overlap')) {
+        setError('Ese usuario ya tiene un viaje en esas fechas. Pídele que lo elimine o cambie las fechas antes de copiar.')
+      } else {
+        setError(err.message || 'No se pudo copiar el viaje')
+      }
     } finally {
       setLoading(false)
     }
