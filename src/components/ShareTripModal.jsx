@@ -53,8 +53,11 @@ export default function ShareTripModal({ trip, onClose }) {
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-gray-600 mb-2">
           Escribe el nombre de usuario y se le creará una copia propia de <strong>{trip.destination}</strong>. Cada persona puede editar su versión sin afectar a las demás.
+        </p>
+        <p className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2 mb-4">
+          Se copian los datos del viaje y el itinerario, pero no la lista de packing. Así cada quien arma su propio equipaje.
         </p>
 
         {error && (

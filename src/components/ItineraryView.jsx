@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
@@ -31,7 +31,9 @@ import {
   addLink,
   updateLink,
   deleteLink,
-  copyItineraryToTrip
+  copyItineraryToTrip,
+  COUNTRY_CATALOG,
+  getCitiesForCountry
 } from '../lib/itineraryStorage'
 
 const linkTypes = {
@@ -70,32 +72,96 @@ function EditableName({ value, onSave, onCancel }) {
   )
 }
 
-function AddForm({ placeholder, onSubmit }) {
-  const [value, setValue] = useState('')
+function CountrySelect({ onSubmit }) {
+  const [query, setQuery] = useState('')
+  const [isOpen, setIsOpen] = useState(false)
+  const wrapperRef = useRef(null)
+
+  const filtered = useMemo(() =>
+    COUNTRY_CATALOG.filter(c =>
+      c.name.toLowerCase().includes(query.toLowerCase())
+    ),
+    [query]
+  )
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleSelect = (name) => {
+    onSubmit(name)
+    setQuery('')
+    setIsOpen(false)
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (query.trim()) {
+      onSubmit(query.trim())
+      setQuery('')
+      setIsOpen(false)
+    }
+  }
+
   return (
-    <form
-      onSubmit={e => { e.preventDefault(); onSubmit(value); setValue('') }}
-      className="flex items-center space-x-2"
-    >
-      <input
-        type="text"
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-      />
-      <button
-        type="submit"
-        className="p-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
-        aria-label="Agregar"
-      >
-        <Plus className="w-4 h-4" />
-      </button>
-    </form>
+    <div ref={wrapperRef} className="relative">
+      <form onSubmit={handleSubmit} className="flex items-center space-x-2">
+        <input
+          type="text"
+          value={query}
+          onChange={e => { setQuery(e.target.value); setIsOpen(true) }}
+          onFocus={() => setIsOpen(true)}
+          placeholder="Agregar país..."
+          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+        />
+        <button
+          type="button"
+          onClick={() => setIsOpen(v => !v)}
+          className="p-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+          aria-label="Abrir lista de países"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </form>
+      {isOpen && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto p-1">
+          {filtered.length === 0 && query.trim() && (
+            <button
+              onClick={() => handleSelect(query.trim())}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-sky-50 rounded"
+            >
+              Usar "{query}"
+            </button>
+          )}
+          {filtered.map(c => (
+            <button
+              key={c.code}
+              onClick={() => handleSelect(c.name)}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-sky-50 rounded flex items-center space-x-2"
+            >
+              <img
+                src={`https://flagcdn.com/w20/${c.code.toLowerCase()}.png`}
+                alt={c.name}
+                className="w-5 h-auto rounded"
+              />
+              <span>{c.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
-function CityForm({ trip, onSubmit, onCancel }) {
+function CityForm({ trip, countryName, onSubmit, onCancel }) {
+  const cityOptions = useMemo(() => getCitiesForCountry(countryName), [countryName])
+  const [suggested, setSuggested] = useState('')
   const [name, setName] = useState('')
   const [arrivalDate, setArrivalDate] = useState('')
   const [departureDate, setDepartureDate] = useState('')
@@ -123,34 +189,66 @@ function CityForm({ trip, onSubmit, onCancel }) {
           {error}
         </p>
       )}
-      <input
-        type="text"
-        value={name}
-        onChange={e => setName(e.target.value)}
-        placeholder="Nombre de la ciudad"
-        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-      />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {cityOptions.length > 0 && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Sugerencias</label>
+          <select
+            value={suggested}
+            onChange={e => {
+              setSuggested(e.target.value)
+              setName(e.target.value)
+            }}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-gray-900"
+          >
+            <option value="">Seleccionar una ciudad...</option>
+            {cityOptions.map(city => (
+              <option key={city} value={city}>{city}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div>
+        <label htmlFor="city-name" className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
         <input
-          type="date"
-          value={arrivalDate}
-          onChange={e => setArrivalDate(e.target.value)}
-          min={trip.start_date}
-          max={trip.end_date}
-          aria-label="Fecha de llegada"
-          required
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+          id="city-name"
+          type="text"
+          value={name}
+          onChange={e => { setName(e.target.value); setSuggested('') }}
+          placeholder="Ej. Viena"
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
         />
-        <input
-          type="date"
-          value={departureDate}
-          onChange={e => setDepartureDate(e.target.value)}
-          min={arrivalDate || trip.start_date}
-          max={trip.end_date}
-          disabled={!arrivalDate}
-          aria-label="Fecha de salida (opcional)"
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
-        />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="city-arrival" className="block text-xs font-medium text-gray-600 mb-1">
+            Fecha de inicio
+          </label>
+          <input
+            id="city-arrival"
+            type="date"
+            value={arrivalDate}
+            onChange={e => setArrivalDate(e.target.value)}
+            min={trip.start_date}
+            max={trip.end_date}
+            required
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+          />
+        </div>
+        <div>
+          <label htmlFor="city-departure" className="block text-xs font-medium text-gray-600 mb-1">
+            Fecha de fin (opcional)
+          </label>
+          <input
+            id="city-departure"
+            type="date"
+            value={departureDate}
+            onChange={e => setDepartureDate(e.target.value)}
+            min={arrivalDate || trip.start_date}
+            max={trip.end_date}
+            disabled={!arrivalDate}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+          />
+        </div>
       </div>
       <div className="flex space-x-2">
         <button
@@ -264,6 +362,8 @@ export default function ItineraryView({ trip, onClose }) {
   const [showImport, setShowImport] = useState(false)
   const [importTrips, setImportTrips] = useState([])
   const [importTarget, setImportTarget] = useState('')
+  const [importMode, setImportMode] = useState('append')
+  const [targetHasItinerary, setTargetHasItinerary] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSuccess, setImportSuccess] = useState('')
@@ -313,6 +413,16 @@ export default function ItineraryView({ trip, onClose }) {
       .then(trips => setImportTrips(trips.filter(t => t.id !== trip.id)))
       .catch(() => setImportError('No se pudieron cargar tus viajes'))
   }, [showImport, user, trip.id])
+
+  useEffect(() => {
+    if (!importTarget) {
+      setTargetHasItinerary(false)
+      return
+    }
+    loadItinerary(importTarget)
+      .then(data => setTargetHasItinerary(data.length > 0))
+      .catch(() => setTargetHasItinerary(false))
+  }, [importTarget])
 
   const toggle = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
@@ -561,6 +671,7 @@ export default function ItineraryView({ trip, onClose }) {
                 {addingCityCountryId === country.id ? (
                   <CityForm
                     trip={trip}
+                    countryName={country.name}
                     onSubmit={fields => handleAddCity(country.id, fields)}
                     onCancel={() => setAddingCityCountryId(null)}
                   />
@@ -591,9 +702,10 @@ export default function ItineraryView({ trip, onClose }) {
     }
     setImportLoading(true)
     try {
-      await copyItineraryToTrip(trip.id, importTarget)
+      await copyItineraryToTrip(trip.id, importTarget, importMode)
       setImportSuccess('Itinerario copiado correctamente')
       setImportTarget('')
+      setImportMode('append')
     } catch (err) {
       setImportError(err.message || 'No se pudo copiar el itinerario')
     } finally {
@@ -622,6 +734,8 @@ export default function ItineraryView({ trip, onClose }) {
   const closeImport = () => {
     setShowImport(false)
     setImportTarget('')
+    setImportMode('append')
+    setTargetHasItinerary(false)
     setImportError('')
     setImportSuccess('')
   }
@@ -631,7 +745,7 @@ export default function ItineraryView({ trip, onClose }) {
       <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">
                 Itinerario: {trip.destination}
@@ -640,38 +754,12 @@ export default function ItineraryView({ trip, onClose }) {
                 {format(parseISO(trip.start_date), 'PPP', { locale: es })} - {format(parseISO(trip.end_date), 'PPP', { locale: es })}
               </p>
             </div>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
-              >
-                {isEditing ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Listo</span>
-                  </>
-                ) : (
-                  <>
-                    <Pencil className="w-4 h-4" />
-                    <span>Editar</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setShowImport(true)}
-                title="Copiar itinerario a otro de mis viajes"
-                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
-              >
-                <Copy className="w-4 h-4" />
-                <span>Copiar</span>
-              </button>
-              <button
-                onClick={onClose}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
+            <button
+              onClick={onClose}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg shrink-0"
+            >
+              <X className="w-6 h-6" />
+            </button>
           </div>
 
           {loading ? (
@@ -683,10 +771,7 @@ export default function ItineraryView({ trip, onClose }) {
             <>
               {isEditing && (
                 <div className="mb-4">
-                  <AddForm
-                    placeholder="Agregar país (ej. Austria)..."
-                    onSubmit={handleAddCountry}
-                  />
+                  <CountrySelect onSubmit={handleAddCountry} />
                 </div>
               )}
 
@@ -716,6 +801,35 @@ export default function ItineraryView({ trip, onClose }) {
               )}
             </>
           )}
+
+          <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end space-x-2">
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
+            >
+              {isEditing ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Listo</span>
+                </>
+              ) : (
+                <>
+                  <Pencil className="w-4 h-4" />
+                  <span>Editar</span>
+                </>
+              )}
+            </button>
+            {!loading && itinerary.length > 0 && (
+              <button
+                onClick={() => setShowImport(true)}
+                title="Copiar itinerario a otro de mis viajes"
+                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                <span>Copiar</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -732,8 +846,11 @@ export default function ItineraryView({ trip, onClose }) {
             </button>
           </div>
 
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-gray-600 mb-2">
             Elige el viaje al que quieres copiar este itinerario.
+          </p>
+          <p className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2 mb-4">
+            Se copian los países, ciudades, fechas y links. No se copia la lista de packing y no se modifica este itinerario.
           </p>
 
           {importError && (
@@ -750,7 +867,7 @@ export default function ItineraryView({ trip, onClose }) {
 
           {importTrips.length === 0 && !importSuccess && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
-              No tienes otros viajes existentes. Podés crear uno nuevo con este itinerario abajo.
+              No tienes otros viajes existentes. Puedes crear uno nuevo con este itinerario abajo.
             </p>
           )}
 
@@ -772,6 +889,36 @@ export default function ItineraryView({ trip, onClose }) {
                 ))}
               </select>
             </div>
+
+            {targetHasItinerary && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-amber-800">
+                  Este viaje ya tiene un itinerario. Elige qué hacer:
+                </p>
+                <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="append"
+                    checked={importMode === 'append'}
+                    onChange={e => setImportMode(e.target.value)}
+                    className="text-sky-600 focus:ring-sky-500"
+                  />
+                  <span>Agregar al final del itinerario existente</span>
+                </label>
+                <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="overwrite"
+                    checked={importMode === 'overwrite'}
+                    onChange={e => setImportMode(e.target.value)}
+                    className="text-sky-600 focus:ring-sky-500"
+                  />
+                  <span>Sobrescribir el itinerario actual (se borra el anterior)</span>
+                </label>
+              </div>
+            )}
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
