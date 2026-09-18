@@ -124,3 +124,51 @@ BEGIN
   RETURN new_trip;
 END;
 $$;
+
+-- Compartir itinerarios con código entre usuarios
+CREATE TABLE IF NOT EXISTS public.shared_itineraries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  trip_id uuid NOT NULL REFERENCES public.trips(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  code text NOT NULL UNIQUE,
+  payload jsonb NOT NULL,
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shared_itineraries_code ON public.shared_itineraries(code);
+CREATE INDEX IF NOT EXISTS idx_shared_itineraries_trip_id ON public.shared_itineraries(trip_id);
+
+ALTER TABLE public.shared_itineraries ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "share_select_by_code"
+  ON public.shared_itineraries
+  FOR SELECT
+  TO authenticated
+  USING (expires_at > now());
+
+CREATE POLICY "share_insert_owner"
+  ON public.shared_itineraries
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM public.trips
+      WHERE public.trips.id = shared_itineraries.trip_id
+        AND public.trips.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "share_delete_owner"
+  ON public.shared_itineraries
+  FOR DELETE
+  TO authenticated
+  USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.trips
+      WHERE public.trips.id = shared_itineraries.trip_id
+        AND public.trips.user_id = auth.uid()
+    )
+  );

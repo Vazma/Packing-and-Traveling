@@ -15,7 +15,8 @@ import {
   ChevronDown,
   LogOut,
   Map,
-  Users
+  Users,
+  X
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getWeatherLabel } from '../lib/labels'
@@ -172,15 +173,17 @@ export default function Dashboard() {
                 Organiza y prepara tus próximas aventuras
               </p>
             </div>
-            <button
-              onClick={() => setShowCreateTrip(true)}
-              className="px-6 py-3 bg-gradient-to-r from-sky-600 to-sky-700 text-white font-medium rounded-lg hover:from-sky-700 hover:to-sky-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Crear Viaje</span>
-            </button>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setShowCreateTrip(true)}
+                className="px-6 py-3 bg-gradient-to-r from-sky-600 to-sky-700 text-white font-medium rounded-lg hover:from-sky-700 hover:to-sky-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Crear Viaje</span>
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -390,6 +393,7 @@ export default function Dashboard() {
           }}
         />
       )}
+
     </div>
   )
 }

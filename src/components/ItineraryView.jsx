@@ -16,7 +16,8 @@ import {
   ChevronDown,
   ArrowDown,
   X,
-  Copy
+  Users,
+  Import
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { loadUserTrips, copyTripForUser } from '../lib/tripStorage'
@@ -32,6 +33,8 @@ import {
   updateLink,
   deleteLink,
   copyItineraryToTrip,
+  createSharedItinerary,
+  importSharedItinerary,
   COUNTRY_CATALOG,
   getCitiesForCountry
 } from '../lib/itineraryStorage'
@@ -269,6 +272,94 @@ function CityForm({ trip, countryName, onSubmit, onCancel }) {
   )
 }
 
+function EditableCity({ city, trip, onSave, onCancel }) {
+  const [name, setName] = useState(city.name)
+  const [arrivalDate, setArrivalDate] = useState(city.arrival_date || '')
+  const [departureDate, setDepartureDate] = useState(city.departure_date || '')
+  const [error, setError] = useState('')
+
+  return (
+    <form
+      onSubmit={e => {
+        e.preventDefault()
+        setError('')
+        if (!name.trim() || !arrivalDate || arrivalDate < trip.start_date || arrivalDate > trip.end_date) {
+          setError('Ingresa un nombre y una fecha de inicio dentro del viaje')
+          return
+        }
+        onSave({
+          name: name.trim(),
+          arrival_date: arrivalDate,
+          departure_date: (departureDate && departureDate >= arrivalDate && departureDate <= trip.end_date) ? departureDate : null
+        }).catch(err => {
+          setError(err?.message || 'No se pudo guardar la ciudad')
+        })
+      }}
+      className="space-y-2 bg-slate-50 p-3 rounded-lg border border-slate-200"
+    >
+      {error && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-100 p-2 rounded-lg">
+          {error}
+        </p>
+      )}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+        />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Fecha de inicio
+          </label>
+          <input
+            type="date"
+            value={arrivalDate}
+            onChange={e => setArrivalDate(e.target.value)}
+            min={trip.start_date}
+            max={trip.end_date}
+            required
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Fecha de fin (opcional)
+          </label>
+          <input
+            type="date"
+            value={departureDate}
+            onChange={e => setDepartureDate(e.target.value)}
+            min={arrivalDate || trip.start_date}
+            max={trip.end_date}
+            disabled={!arrivalDate}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+          />
+        </div>
+      </div>
+      <div className="flex space-x-2">
+        <button
+          type="submit"
+          className="px-4 py-2 bg-sky-600 text-white text-sm rounded-lg hover:bg-sky-700"
+        >
+          Guardar
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50"
+        >
+          Cancelar
+        </button>
+      </div>
+    </form>
+  )
+}
+
 function LinkForm({ initial = {}, onSubmit, onCancel }) {
   const [type, setType] = useState(initial.type || 'attraction')
   const [name, setName] = useState(initial.name || '')
@@ -367,6 +458,16 @@ export default function ItineraryView({ trip, onClose }) {
   const [importLoading, setImportLoading] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSuccess, setImportSuccess] = useState('')
+  const [showShare, setShowShare] = useState(false)
+  const [shareCode, setShareCode] = useState('')
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareError, setShareError] = useState('')
+  const [showImportCode, setShowImportCode] = useState(false)
+  const [importCodeText, setImportCodeText] = useState('')
+  const [importCodeLoading, setImportCodeLoading] = useState(false)
+  const [importCodeError, setImportCodeError] = useState('')
+  const [importCodeWarning, setImportCodeWarning] = useState('')
+  const [importCodeSuccess, setImportCodeSuccess] = useState('')
 
   const applyData = useCallback(data => {
     setItinerary(data)
@@ -451,9 +552,13 @@ export default function ItineraryView({ trip, onClose }) {
     setAddingCityCountryId(null)
   }
 
-  const handleUpdateCity = async (cityId, name) => {
-    if (!name.trim()) return
-    await updateCity(cityId, name.trim())
+  const handleUpdateCity = async (cityId, { name, arrival_date, departure_date }) => {
+    if (!name.trim() || !arrival_date) return
+    await updateCity(cityId, {
+      name: name.trim(),
+      arrival_date,
+      departure_date: (departure_date && departure_date >= arrival_date && departure_date <= trip.end_date) ? departure_date : null
+    })
     load()
     setEditing(null)
   }
@@ -549,14 +654,18 @@ export default function ItineraryView({ trip, onClose }) {
     return (
       <div className="border-t border-gray-100">
         <button
-          onClick={() => toggle(city.id)}
+          onClick={() => {
+            if (editing?.id === city.id && editing?.kind === 'city') return
+            toggle(city.id)
+          }}
           className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
         >
           {isEditing && editing?.id === city.id && editing?.kind === 'city' ? (
             <div onClick={e => e.stopPropagation()} className="flex-1 mr-2">
-              <EditableName
-                value={city.name}
-                onSave={name => handleUpdateCity(city.id, name)}
+              <EditableCity
+                city={city}
+                trip={trip}
+                onSave={fields => handleUpdateCity(city.id, fields)}
                 onCancel={() => setEditing(null)}
               />
             </div>
@@ -571,27 +680,29 @@ export default function ItineraryView({ trip, onClose }) {
               )}
             </div>
           )}
-          <div className="flex items-center space-x-1">
-            {isEditing && (
-              <>
-                <button
-                  onClick={e => { e.stopPropagation(); setEditing({ id: city.id, kind: 'city' }) }}
-                  className="p-1.5 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded"
-                  aria-label="Editar ciudad"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); deleteCity(city.id).then(load) }}
-                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                  aria-label="Eliminar ciudad"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </>
-            )}
-            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-          </div>
+          {!(editing?.id === city.id && editing?.kind === 'city') && (
+            <div className="flex items-center space-x-1">
+              {isEditing && (
+                <>
+                  <button
+                    onClick={e => { e.stopPropagation(); setEditing({ id: city.id, kind: 'city' }) }}
+                    className="p-1.5 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded"
+                    aria-label="Editar ciudad"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); deleteCity(city.id).then(load) }}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                    aria-label="Eliminar ciudad"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+              <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+            </div>
+          )}
         </button>
 
         {isExpanded && (
@@ -740,6 +851,85 @@ export default function ItineraryView({ trip, onClose }) {
     setImportSuccess('')
   }
 
+  const handleShare = async () => {
+    setShareError('')
+    setShareCode('')
+    setShareLoading(true)
+    try {
+      const code = await createSharedItinerary(trip.id, user.id)
+      setShareCode(code)
+    } catch (err) {
+      setShareError(err.message || 'No se pudo compartir el itinerario')
+    } finally {
+      setShareLoading(false)
+    }
+  }
+
+  const closeShare = () => {
+    setShowShare(false)
+    setShareCode('')
+    setShareError('')
+    setShareLoading(false)
+  }
+
+  const handleImportCode = async (e) => {
+    e.preventDefault()
+    setImportCodeError('')
+    setImportCodeWarning('')
+    setImportCodeSuccess('')
+    if (!importCodeText.trim()) {
+      setImportCodeError('Ingresa un código')
+      return
+    }
+    setImportCodeLoading(true)
+    try {
+      await importSharedItinerary(importCodeText.trim().toUpperCase(), trip.id)
+      setImportCodeSuccess('Itinerario importado correctamente')
+      setImportCodeText('')
+      setImportCodeWarning('')
+      setIsEditing(false)
+      load()
+      setTimeout(closeImportCode, 2000)
+    } catch (err) {
+      const message = err.message || 'No se pudo importar el itinerario'
+      if (message.includes('quedan fuera de las fechas')) {
+        setImportCodeWarning(message)
+      } else {
+        setImportCodeError(message)
+      }
+    } finally {
+      setImportCodeLoading(false)
+    }
+  }
+
+  const handleImportWithoutDates = async () => {
+    setImportCodeError('')
+    setImportCodeWarning('')
+    setImportCodeLoading(true)
+    try {
+      await importSharedItinerary(importCodeText.trim().toUpperCase(), trip.id, 'append', true)
+      setImportCodeSuccess('Itinerario importado sin fechas')
+      setImportCodeText('')
+      setImportCodeWarning('')
+      setIsEditing(false)
+      load()
+      setTimeout(closeImportCode, 2000)
+    } catch (err) {
+      setImportCodeError(err.message || 'No se pudo importar el itinerario')
+    } finally {
+      setImportCodeLoading(false)
+    }
+  }
+
+  const closeImportCode = () => {
+    setShowImportCode(false)
+    setImportCodeText('')
+    setImportCodeError('')
+    setImportCodeWarning('')
+    setImportCodeSuccess('')
+    setImportCodeLoading(false)
+  }
+
   return (
     <>
       <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
@@ -802,7 +992,7 @@ export default function ItineraryView({ trip, onClose }) {
             </>
           )}
 
-          <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end space-x-2">
+          <div className="mt-6 pt-4 border-t border-gray-200 flex flex-wrap justify-end gap-2">
             <button
               onClick={() => setIsEditing(!isEditing)}
               className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
@@ -819,14 +1009,24 @@ export default function ItineraryView({ trip, onClose }) {
                 </>
               )}
             </button>
-            {!loading && itinerary.length > 0 && (
+            {!loading && itinerary.length === 0 && (
               <button
-                onClick={() => setShowImport(true)}
-                title="Copiar itinerario a otro de mis viajes"
+                onClick={() => setShowImportCode(true)}
+                title="Importar itinerario compartido"
                 className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
               >
-                <Copy className="w-4 h-4" />
-                <span>Copiar</span>
+                <Import className="w-4 h-4" />
+                <span>Importar</span>
+              </button>
+            )}
+            {!loading && !isEditing && itinerary.length > 0 && (
+              <button
+                onClick={() => { setShowShare(true); handleShare() }}
+                title="Compartir itinerario con código"
+                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg border border-sky-600 text-sky-700 hover:bg-sky-50 transition-colors"
+              >
+                <Users className="w-4 h-4" />
+                <span>Compartir</span>
               </button>
             )}
           </div>
@@ -947,6 +1147,131 @@ export default function ItineraryView({ trip, onClose }) {
               Crear un viaje nuevo con este itinerario
             </button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {showShare && (
+      <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Compartir itinerario</h2>
+            <button
+              onClick={closeShare}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-600 mb-4">
+            Comparte este código con la otra persona. Ella puede importar el itinerario a su propio viaje sin modificar su progreso de empacado.
+          </p>
+
+          {shareError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              {shareError}
+            </div>
+          )}
+
+          {shareLoading ? (
+            <p className="text-sm text-gray-500 text-center py-4">Generando código...</p>
+          ) : shareCode ? (
+            <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 text-center mb-4">
+              <p className="text-xs text-sky-700 uppercase tracking-wide mb-1">Código</p>
+              <p className="text-3xl font-bold text-sky-900 tracking-widest">{shareCode}</p>
+            </div>
+          ) : null}
+
+          <div className="flex justify-end">
+            <button
+              onClick={closeShare}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {showImportCode && (
+      <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Importar itinerario compartido</h2>
+            <button
+              onClick={closeImportCode}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-600 mb-2">
+            Pega el código que te compartieron y se agregará a este viaje.
+          </p>
+          <p className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2 mb-4">
+            Se importan países, ciudades, fechas y links. No se toca tu lista de packing.
+          </p>
+
+          {importCodeError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              {importCodeError}
+            </div>
+          )}
+
+          {importCodeSuccess && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              {importCodeSuccess}
+            </div>
+          )}
+
+          {importCodeWarning && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg mb-4 text-sm">
+              <p className="mb-2">{importCodeWarning}</p>
+              <button
+                type="button"
+                onClick={handleImportWithoutDates}
+                disabled={importCodeLoading}
+                className="text-sm text-sky-700 hover:text-sky-800 font-medium underline disabled:opacity-50"
+              >
+                Importar de todos modos sin fechas
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleImportCode} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Código
+              </label>
+              <input
+                type="text"
+                value={importCodeText}
+                onChange={e => setImportCodeText(e.target.value)}
+                placeholder="Ej: ABC123"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-gray-900 placeholder-gray-400"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={closeImportCode}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                disabled={importCodeLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={importCodeLoading}
+                className="px-6 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
+              >
+                {importCodeLoading ? 'Importando...' : 'Importar'}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     )}

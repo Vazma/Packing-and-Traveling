@@ -145,10 +145,14 @@ export const addCity = async (countryId, { name, arrival_date, departure_date })
   return data
 }
 
-export const updateCity = async (cityId, name) => {
+export const updateCity = async (cityId, { name, arrival_date, departure_date }) => {
+  const updates = {}
+  if (name !== undefined) updates.name = name
+  if (arrival_date !== undefined) updates.arrival_date = arrival_date || null
+  if (departure_date !== undefined) updates.departure_date = departure_date || null
   const { data, error } = await supabase
     .from('trip_cities')
-    .update({ name })
+    .update(updates)
     .eq('id', cityId)
     .select()
     .single()
@@ -196,14 +200,15 @@ export const deleteLink = async linkId => {
   if (error) throw error
 }
 
-export const copyItineraryToTrip = async (sourceTripId, targetTripId, mode = 'append') => {
-  const { data: sourceCountries, error: scError } = await supabase
-    .from('trip_countries')
-    .select('*')
-    .eq('trip_id', sourceTripId)
-    .order('order_index', { ascending: true })
-  if (scError) throw scError
-  if (!sourceCountries || sourceCountries.length === 0) return
+function generateShareCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let out = ''
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
+const addItinerarySnapshot = async (targetTripId, snapshot, mode = 'append') => {
+  if (!snapshot || snapshot.length === 0) return
 
   if (mode === 'overwrite') {
     const { data: targetCountries, error: tcError } = await supabase
@@ -256,7 +261,7 @@ export const copyItineraryToTrip = async (sourceTripId, targetTripId, mode = 'ap
 
   const { data: newCountries, error: ncError } = await supabase
     .from('trip_countries')
-    .insert(sourceCountries.map(c => ({
+    .insert(snapshot.map(c => ({
       trip_id: targetTripId,
       name: c.name,
       order_index: baseOrder + c.order_index,
@@ -264,57 +269,118 @@ export const copyItineraryToTrip = async (sourceTripId, targetTripId, mode = 'ap
     .select()
   if (ncError) throw ncError
 
-  const countryMap = new Map()
-  for (let i = 0; i < sourceCountries.length; i++) {
-    countryMap.set(sourceCountries[i].id, newCountries[i].id)
+  const cityRows = []
+  const sourceCities = []
+  for (let i = 0; i < snapshot.length; i++) {
+    for (const city of snapshot[i].cities || []) {
+      sourceCities.push(city)
+      cityRows.push({
+        country_id: newCountries[i].id,
+        name: city.name,
+        arrival_date: city.arrival_date,
+        departure_date: city.departure_date,
+        order_index: city.order_index,
+      })
+    }
   }
 
-  const { data: sourceCities, error: sourceCitiesError } = await supabase
-    .from('trip_cities')
-    .select('*')
-    .in('country_id', sourceCountries.map(c => c.id))
-    .order('order_index', { ascending: true })
-  if (sourceCitiesError) throw sourceCitiesError
-
-  if (sourceCities && sourceCities.length > 0) {
-    const cityRows = sourceCities.map(city => ({
-      country_id: countryMap.get(city.country_id),
-      name: city.name,
-      arrival_date: city.arrival_date,
-      departure_date: city.departure_date,
-      order_index: city.order_index,
-    }))
+  if (cityRows.length > 0) {
     const { data: newCities, error: newCitiesError } = await supabase
       .from('trip_cities')
       .insert(cityRows)
       .select()
     if (newCitiesError) throw newCitiesError
 
-    const cityMap = new Map()
+    const linkRows = []
     for (let i = 0; i < sourceCities.length; i++) {
-      cityMap.set(sourceCities[i].id, newCities[i].id)
+      for (const link of sourceCities[i].links || []) {
+        linkRows.push({
+          city_id: newCities[i].id,
+          type: link.type,
+          name: link.name,
+          url: link.url,
+          notes: link.notes,
+          order_index: link.order_index,
+        })
+      }
     }
 
-    const { data: sourceLinks, error: sourceLinksError } = await supabase
-      .from('city_links')
-      .select('*')
-      .in('city_id', sourceCities.map(c => c.id))
-      .order('order_index', { ascending: true })
-    if (sourceLinksError) throw sourceLinksError
-
-    if (sourceLinks && sourceLinks.length > 0) {
-      const linkRows = sourceLinks.map(link => ({
-        city_id: cityMap.get(link.city_id),
-        type: link.type,
-        name: link.name,
-        url: link.url,
-        notes: link.notes,
-        order_index: link.order_index,
-      }))
+    if (linkRows.length > 0) {
       const { error: linksError } = await supabase.from('city_links').insert(linkRows)
       if (linksError) throw linksError
     }
   }
+}
+
+export const copyItineraryToTrip = async (sourceTripId, targetTripId, mode = 'append') => {
+  const snapshot = await loadItinerary(sourceTripId)
+  if (!snapshot || snapshot.length === 0) return
+  await addItinerarySnapshot(targetTripId, snapshot, mode)
+}
+
+export const createSharedItinerary = async (tripId, userId) => {
+  const snapshot = await loadItinerary(tripId)
+  if (!snapshot || snapshot.length === 0) throw new Error('El itinerario está vacío')
+
+  let code = generateShareCode()
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { error } = await supabase
+      .from('shared_itineraries')
+      .insert({
+        trip_id: tripId,
+        user_id: userId,
+        code,
+        payload: snapshot,
+      })
+    if (!error) return code
+    if (error.code !== '23505') throw error
+    code = generateShareCode()
+  }
+  throw new Error('No se pudo generar un código único')
+}
+
+export const importSharedItinerary = async (code, targetTripId, mode = 'append', clearDates = false) => {
+  const { data, error } = await supabase
+    .from('shared_itineraries')
+    .select('payload')
+    .eq('code', code)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) throw new Error('Código no válido o expirado')
+
+  const payload = JSON.parse(JSON.stringify(data.payload))
+
+  if (clearDates) {
+    for (const country of payload) {
+      for (const city of country.cities) {
+        city.arrival_date = null
+        city.departure_date = null
+      }
+    }
+  } else {
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('start_date, end_date')
+      .eq('id', targetTripId)
+      .single()
+    if (tripError) throw tripError
+
+    const outOfRange = []
+    for (const country of payload) {
+      for (const city of country.cities) {
+        if (city.arrival_date && (city.arrival_date < trip.start_date || city.arrival_date > trip.end_date)) {
+          outOfRange.push(`${city.name} (${country.name})`)
+        } else if (city.departure_date && (city.departure_date < trip.start_date || city.departure_date > trip.end_date)) {
+          outOfRange.push(`${city.name} (${country.name})`)
+        }
+      }
+    }
+    if (outOfRange.length > 0) {
+      throw new Error(`Algunas ciudades quedan fuera de las fechas del viaje (${trip.start_date} a ${trip.end_date}): ${outOfRange.slice(0, 5).join(', ')}`)
+    }
+  }
+
+  await addItinerarySnapshot(targetTripId, payload, mode)
 }
 
 export const COUNTRY_CATALOG = [
